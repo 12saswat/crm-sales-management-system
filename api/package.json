@@ -1,0 +1,38 @@
+{
+  "name": "crm-sales-management-api",
+  "version": "1.0.0",
+  "description": "Production Ready RESTful API for CRM Sales Management System",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "seed": "node src/seeds/seed.js"
+  },
+  "keywords": [
+    "crm",
+    "sales-management",
+    "express",
+    "mongoose",
+    "mongodb",
+    "nodejs",
+    "rest-api"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.6",
+    "express": "^5.2.1",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^9.11.1",
+    "nodemon": "^3.1.14",
+    "swagger-ui-express": "^5.0.1",
+    "yamljs": "^0.3.0",
+    "zod": "^3.24.2"
+  }
+}
