@@ -2,13 +2,24 @@ import { Lead } from '../models/Lead.js';
 import { User } from '../models/User.js';
 import { ApiError } from '../utils/ApiError.js';
 import { parseQueryParams, buildPaginationMeta } from '../utils/queryHelper.js';
-import { applyRoleScope, checkDocumentOwnership } from '../middleware/rbac.middleware.js';
+import { applyRoleScope, checkDocumentOwnership, getTeamUserIds } from '../middleware/rbac.middleware.js';
 import { logEvent } from './timeline.service.js';
-import { ENTITY_TYPES, TIMELINE_ACTIONS } from '../config/constants.js';
+import { ENTITY_TYPES, TIMELINE_ACTIONS, ROLES, LEAD_STATUSES } from '../config/constants.js';
+import { ConfigService } from './config.service.js';
 
 
 export const createLead = async (leadData, currentUser) => {
   let assignedUserId = leadData.assignedTo || currentUser._id;
+
+  if (currentUser.role === ROLES.SALES_EXECUTIVE) {
+    assignedUserId = currentUser._id;
+  } else if (currentUser.role === ROLES.SALES_MANAGER && leadData.assignedTo) {
+    const teamUserIds = await getTeamUserIds(currentUser);
+    const teamIdStrings = teamUserIds.map((id) => id.toString());
+    if (!teamIdStrings.includes(leadData.assignedTo.toString())) {
+      throw new ApiError(403, 'Sales Managers can only assign leads to executives within their team');
+    }
+  }
 
   // Verify assigned user is active
   const assignedUser = await User.findById(assignedUserId);
@@ -42,7 +53,7 @@ export const getLeads = async (queryParams, currentUser) => {
   });
 
   // Enforce role-based access scope
-  const scopedFilter = applyRoleScope({ user: currentUser }, filterQuery, 'assignedTo');
+  const scopedFilter = await applyRoleScope({ user: currentUser }, filterQuery, 'assignedTo');
 
   const [leads, totalRecords] = await Promise.all([
     Lead.find(scopedFilter)
@@ -63,9 +74,7 @@ export const getLeadById = async (leadId, currentUser) => {
     throw new ApiError(404, 'Lead not found');
   }
 
-  const assignedTo = lead.assignedTo._id;
-
-  checkDocumentOwnership(lead, currentUser, "assignedTo");
+  await checkDocumentOwnership(lead, currentUser, 'assignedTo');
   return lead;
 };
 
@@ -75,14 +84,24 @@ export const updateLead = async (leadId, updateData, currentUser) => {
     throw new ApiError(404, 'Lead not found');
   }
 
-  checkDocumentOwnership(lead, currentUser, 'assignedTo');
+  await checkDocumentOwnership(lead, currentUser, 'assignedTo');
 
-  console.log(lead)
+  if (lead.isConverted || lead.status === LEAD_STATUSES.CONVERTED) {
+    throw new ApiError(400, 'Cannot modify a lead that has already been converted');
+  }
+
+  if (updateData.status === LEAD_STATUSES.CONVERTED) {
+    throw new ApiError(
+      400,
+      "Lead status cannot be directly updated to 'converted'. Please use the lead conversion endpoint (POST /api/v1/leads/:id/convert)"
+    );
+  }
 
   const prevStatus = lead.status;
   const prevPriority = lead.priority;
 
   // Prevent direct update of assignedTo or isConverted via standard update endpoint
+  delete updateData.assignedTo;
   delete updateData.isConverted;
   delete updateData.convertedToCustomer;
   delete updateData.convertedToDeal;
@@ -129,9 +148,37 @@ export const assignLead = async (leadId, targetUserId, currentUser) => {
     throw new ApiError(404, 'Lead not found');
   }
 
+  if (lead.isConverted) {
+    throw new ApiError(400, 'Cannot reassign a converted lead');
+  }
+
+  // Enforce CRM Configuration flag for Sales Executive reassignment
+  if (currentUser.role === ROLES.SALES_EXECUTIVE) {
+    const crmConfig = await ConfigService.getConfig();
+    if (!crmConfig.allowExecutiveLeadReassignment) {
+      throw new ApiError(403, 'Lead reassignment by Sales Executives is disabled in CRM configuration');
+    }
+  }
+
+  // Sales Managers can only reassign leads within their team; Executives must own the lead
+  await checkDocumentOwnership(lead, currentUser, 'assignedTo');
+
+
   const targetUser = await User.findById(targetUserId);
   if (!targetUser || !targetUser.isActive) {
     throw new ApiError(400, 'Cannot assign lead to an invalid or inactive user');
+  }
+
+  if (targetUser.role !== ROLES.SALES_EXECUTIVE) {
+    throw new ApiError(400, 'Leads can only be assigned to a Sales Executive');
+  }
+
+  if (currentUser.role === ROLES.SALES_MANAGER) {
+    const teamUserIds = await getTeamUserIds(currentUser);
+    const teamIdStrings = teamUserIds.map((id) => id.toString());
+    if (!teamIdStrings.includes(targetUser._id.toString())) {
+      throw new ApiError(403, 'Sales Managers can only assign leads to executives within their team');
+    }
   }
 
   const prevAssignedId = lead.assignedTo;
@@ -158,7 +205,7 @@ export const deleteLead = async (leadId, currentUser) => {
     throw new ApiError(404, 'Lead not found');
   }
 
-  checkDocumentOwnership(lead, currentUser, 'assignedTo');
+  await checkDocumentOwnership(lead, currentUser, 'assignedTo');
   await Lead.findByIdAndDelete(leadId);
   return true;
 };
@@ -172,3 +219,4 @@ export const LeadService = {
   assignLead,
   deleteLead,
 };
+

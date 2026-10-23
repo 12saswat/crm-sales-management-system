@@ -35,7 +35,8 @@ router.route('/:id')
   .delete(authorizeRoles(ROLES.ADMIN, ROLES.SALES_MANAGER), deleteLead);
 
 router.patch('/:id/status', validate(updateLeadStatusSchema), updateLeadStatus);
-router.patch('/:id/assign', authorizeRoles(ROLES.ADMIN, ROLES.SALES_MANAGER), validate(assignLeadSchema), assignLead);
+router.patch('/:id/assign', validate(assignLeadSchema), assignLead);
 router.post('/:id/convert', validate(convertLeadSchema), convertLead);
+
 
 export default router;

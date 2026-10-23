@@ -11,16 +11,25 @@ export const registerSchema = z.object({
     .email('Invalid email address format'),
   phone: z
     .string()
-    .refine((val) => !val || val.trim() === '' || val.trim().length >= 10, {
-      message: 'Phone number must be at least 10 characters',
-    })
+    .refine(
+      (val) => {
+        if (!val || val.trim() === '') return true;
+        const cleaned = val.replace(/[\s\-\.\(\)]/g, '');
+        return /^\+?[1-9]\d{9,14}$/.test(cleaned);
+      },
+      { message: 'Phone number must be a valid format with 10 to 15 digits' }
+    )
     .optional()
     .default(''),
+
   password: z
     .string({ message: 'Password is required' })
     .min(6, 'Password must be at least 6 characters'),
-  role: z.nativeEnum(ROLES).optional().default(ROLES.SALES_EXECUTIVE),
+  role: z.literal(ROLES.SALES_EXECUTIVE, {
+    errorMap: () => ({ message: 'Public registration is restricted to Sales Executive role only' }),
+  }).optional().default(ROLES.SALES_EXECUTIVE),
 });
+
 
 export const loginSchema = z.object({
   email: z

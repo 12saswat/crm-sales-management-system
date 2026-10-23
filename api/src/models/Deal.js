@@ -55,6 +55,11 @@ const dealSchema = new mongoose.Schema(
       trim: true,
       default: '',
     },
+    reopenReason: {
+      type: String,
+      trim: true,
+      default: '',
+    },
     description: {
       type: String,
       trim: true,

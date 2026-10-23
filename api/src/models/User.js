@@ -24,11 +24,14 @@ const userSchema = new mongoose.Schema(
       default: '',
       validate: {
         validator: function (v) {
-          return !v || v.trim() === '' || v.trim().length >= 10;
+          if (!v || v.trim() === '') return true;
+          const cleaned = v.replace(/[\s\-\.\(\)]/g, '');
+          return /^\+?[1-9]\d{9,14}$/.test(cleaned);
         },
-        message: 'Phone number must be at least 10 characters',
+        message: 'Phone number must be a valid format with 10 to 15 digits',
       },
     },
+
     password: {
       type: String,
       required: [true, 'Password is required'],
@@ -47,6 +50,11 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    manager: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
   },
   {
     timestamps: true,
@@ -64,6 +72,8 @@ const userSchema = new mongoose.Schema(
 // Indexes
 userSchema.index({ role: 1 });
 userSchema.index({ isActive: 1 });
+userSchema.index({ manager: 1 });
+
 
 // Password Hash Middleware
 userSchema.pre('save', async function () {

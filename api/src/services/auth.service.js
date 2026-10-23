@@ -18,10 +18,17 @@ export const registerUser = async (userData) => {
     throw new ApiError(400, 'User with this email already exists');
   }
 
+  // Security: Public registration is strictly restricted to Sales Executive
+  if (userData.role && userData.role !== 'Sales Executive') {
+    throw new ApiError(403, 'Public registration is restricted to Sales Executive role only. Management accounts must be created by an administrator.');
+  }
+  userData.role = 'Sales Executive';
+
   const user = await User.create(userData);
   const token = generateToken(user);
   return { user, token };
 };
+
 
 export const loginUser = async ({ email, password }) => {
   const user = await User.findOne({ email: email.toLowerCase() }).select('+password');

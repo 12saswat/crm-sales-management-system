@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import { Lead } from '../models/Lead.js';
 import { Customer } from '../models/Customer.js';
 import { Deal } from '../models/Deal.js';
+import { Timeline } from '../models/Timeline.js';
 import { ApiError } from '../utils/ApiError.js';
 import { logEvent } from './timeline.service.js';
 import { checkDocumentOwnership } from '../middleware/rbac.middleware.js';
@@ -16,14 +17,15 @@ export const convertLead = async (leadId, conversionParams = {}, currentUser) =>
     throw new ApiError(404, 'Lead not found');
   }
 
-  checkDocumentOwnership(lead, currentUser, 'assignedTo');
+  await checkDocumentOwnership(lead, currentUser, 'assignedTo');
 
-  if (lead.isConverted) {
+  if (lead.isConverted || lead.status === LEAD_STATUSES.CONVERTED) {
     throw new ApiError(400, 'Lead has already been converted and cannot be converted again');
   }
 
-  if (lead.status === LEAD_STATUSES.LOST || lead.status === LEAD_STATUSES.UNQUALIFIED) {
-    throw new ApiError(400, `Lead with status '${lead.status}' cannot be converted`);
+  // Spec: Only a qualified lead can be converted
+  if (lead.status !== LEAD_STATUSES.QUALIFIED) {
+    throw new ApiError(400, `Only qualified leads can be converted. Current status: '${lead.status}'`);
   }
 
   // Try transaction session first
@@ -34,10 +36,19 @@ export const convertLead = async (leadId, conversionParams = {}, currentUser) =>
     session.startTransaction();
     useTransaction = true;
   } catch (e) {
-    // Standalone MongoDB without replica set
+    // Standalone MongoDB without replica set - clean up opened session
+    if (session) {
+      try {
+        await session.endSession();
+      } catch (_) {}
+    }
     session = null;
     useTransaction = false;
   }
+
+  let customer = null;
+  let deal = null;
+  const createdTimelineIds = [];
 
   try {
     // 1. Create Customer
@@ -52,7 +63,6 @@ export const convertLead = async (leadId, conversionParams = {}, currentUser) =>
       status: CUSTOMER_STATUSES.ACTIVE,
     };
 
-    let customer;
     if (useTransaction) {
       const [c] = await Customer.create([customerData], { session });
       customer = c;
@@ -61,8 +71,7 @@ export const convertLead = async (leadId, conversionParams = {}, currentUser) =>
     }
 
     // 2. Create Deal if requested (default: true)
-    let deal = null;
-    const shouldCreateDeal = conversionParams.createDeal !== false;
+    let shouldCreateDeal = conversionParams.createDeal !== false;
 
     if (shouldCreateDeal) {
       const dealData = {
@@ -71,7 +80,7 @@ export const convertLead = async (leadId, conversionParams = {}, currentUser) =>
         customer: customer._id,
         assignedTo: lead.assignedTo,
         value: conversionParams.dealValue || 1000,
-        probability: conversionParams.dealProbability || 50,
+        probability: conversionParams.dealProbability !== undefined ? conversionParams.dealProbability : 50,
         expectedClosingDate: conversionParams.expectedClosingDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
         stage: DEAL_STAGES.QUALIFICATION,
         description: `Created automatically from Lead Conversion (${lead.name})`,
@@ -99,7 +108,7 @@ export const convertLead = async (leadId, conversionParams = {}, currentUser) =>
     }
 
     // 4. Log Timeline Events
-    await logEvent({
+    const tCustomer = await logEvent({
       action: TIMELINE_ACTIONS.CUSTOMER_CREATED,
       entityType: ENTITY_TYPES.CUSTOMER,
       entityId: customer._id,
@@ -108,9 +117,10 @@ export const convertLead = async (leadId, conversionParams = {}, currentUser) =>
       details: `Customer created from Lead Conversion (${lead.name})`,
       session: useTransaction ? session : null,
     });
+    if (tCustomer?._id) createdTimelineIds.push(tCustomer._id);
 
     if (deal) {
-      await logEvent({
+      const tDeal = await logEvent({
         action: TIMELINE_ACTIONS.DEAL_CREATED,
         entityType: ENTITY_TYPES.DEAL,
         entityId: deal._id,
@@ -119,9 +129,10 @@ export const convertLead = async (leadId, conversionParams = {}, currentUser) =>
         details: `Deal created from Lead Conversion`,
         session: useTransaction ? session : null,
       });
+      if (tDeal?._id) createdTimelineIds.push(tDeal._id);
     }
 
-    await logEvent({
+    const tLead = await logEvent({
       action: TIMELINE_ACTIONS.LEAD_CONVERTED,
       entityType: ENTITY_TYPES.LEAD,
       entityId: lead._id,
@@ -130,6 +141,7 @@ export const convertLead = async (leadId, conversionParams = {}, currentUser) =>
       details: `Lead successfully converted to Customer${deal ? ' and Deal' : ''}`,
       session: useTransaction ? session : null,
     });
+    if (tLead?._id) createdTimelineIds.push(tLead._id);
 
     if (useTransaction && session) {
       await session.commitTransaction();
@@ -143,8 +155,39 @@ export const convertLead = async (leadId, conversionParams = {}, currentUser) =>
     };
   } catch (error) {
     if (useTransaction && session) {
-      await session.abortTransaction();
-      session.endSession();
+      try {
+        await session.abortTransaction();
+      } catch (_) {}
+      try {
+        session.endSession();
+      } catch (_) {}
+    } else {
+      // Compensating rollback for standalone MongoDB
+      if (deal?._id) {
+        try {
+          await Deal.findByIdAndDelete(deal._id);
+        } catch (_) {}
+      }
+      if (customer?._id) {
+        try {
+          await Customer.findByIdAndDelete(customer._id);
+        } catch (_) {}
+      }
+      if (createdTimelineIds.length > 0) {
+        try {
+          await Timeline.deleteMany({ _id: { $in: createdTimelineIds } });
+        } catch (_) {}
+      }
+
+      // Revert lead in-memory changes
+      lead.status = LEAD_STATUSES.QUALIFIED;
+      lead.isConverted = false;
+      lead.convertedAt = undefined;
+      lead.convertedToCustomer = undefined;
+      lead.convertedToDeal = undefined;
+      try {
+        await lead.save();
+      } catch (_) {}
     }
     throw error;
   }
@@ -153,3 +196,4 @@ export const convertLead = async (leadId, conversionParams = {}, currentUser) =>
 export const LeadConversionService = {
   convertLead,
 };
+

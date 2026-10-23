@@ -37,14 +37,16 @@ export const swaggerDocument = {
     { name: 'Activity Management', description: 'Follow-ups, calls, meetings & task tracking' },
     { name: 'Timeline Audit', description: 'Audit history logging across all CRM entities' },
     { name: 'Dashboard & Analytics', description: 'Sales overview metrics, pipeline stage breakdown & team performance' },
+    { name: 'CRM Configuration', description: 'Admin system configuration and CRM parameters' },
   ],
+
   paths: {
     // --- AUTHENTICATION ---
     '/auth/register': {
       post: {
         tags: ['Authentication'],
         summary: 'Register new user',
-        description: 'Creates a new user account in the CRM.',
+        description: 'Creates a new user account in the CRM (public registration is restricted to Sales Executive role).',
         requestBody: {
           required: true,
           content: {
@@ -57,12 +59,19 @@ export const swaggerDocument = {
                   email: { type: 'string', example: 'john@example.com' },
                   phone: { type: 'string', example: '+919876543210' },
                   password: { type: 'string', example: 'UserPass123!' },
-                  role: { type: 'string', enum: ['Admin', 'Sales Manager', 'Sales Executive'], example: 'Sales Executive' },
+                  role: {
+                    type: 'string',
+                    enum: ['Sales Executive'],
+                    default: 'Sales Executive',
+                    example: 'Sales Executive',
+                    description: 'Public registration is restricted to Sales Executive role only. Management accounts are created by an administrator via User Management.',
+                  },
                 },
               },
             },
           },
         },
+
         responses: {
           201: { description: 'User registered successfully' },
           400: { description: 'Validation error or email already exists' },
@@ -782,7 +791,48 @@ export const swaggerDocument = {
         },
       },
     },
+
+    // --- CRM CONFIGURATION ---
+    '/config': {
+      get: {
+        tags: ['CRM Configuration'],
+        summary: 'Get CRM configuration & system settings',
+        description: 'Retrieve current CRM settings, default pipeline stages, currency, and default probabilities.',
+        responses: {
+          200: { description: 'CRM configuration fetched successfully' },
+        },
+      },
+      put: {
+        tags: ['CRM Configuration'],
+        summary: 'Update CRM configuration & settings (Admin only)',
+        description: 'Admin only. Updates system settings, currency, company name, default pipeline stages, etc.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  companyName: { type: 'string', example: 'Odisha CRM Solutions' },
+                  currency: { type: 'string', example: 'USD' },
+                  timezone: { type: 'string', example: 'UTC' },
+                  leadSources: { type: 'array', items: { type: 'string' } },
+                  leadStatuses: { type: 'array', items: { type: 'string' } },
+                  dealStages: { type: 'array', items: { type: 'string' } },
+                  allowExecutiveLeadReassignment: { type: 'boolean', example: false },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: { description: 'CRM configuration updated successfully' },
+          403: { description: 'Forbidden: Admin role required' },
+        },
+      },
+    },
   },
 };
 
 export { swaggerUi };
+

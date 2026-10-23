@@ -8,10 +8,10 @@ import { LEAD_STATUSES, DEAL_STAGES, ACTIVITY_STATUSES, ROLES } from '../config/
 
 
 export const getOverviewMetrics = async (currentUser) => {
-  const leadScope = applyRoleScope({ user: currentUser }, {}, 'assignedTo');
-  const customerScope = applyRoleScope({ user: currentUser }, {}, 'assignedTo');
-  const dealScope = applyRoleScope({ user: currentUser }, {}, 'assignedTo');
-  const activityScope = applyRoleScope({ user: currentUser }, {}, 'assignedTo');
+  const leadScope = await applyRoleScope({ user: currentUser }, {}, 'assignedTo');
+  const customerScope = await applyRoleScope({ user: currentUser }, {}, 'assignedTo');
+  const dealScope = await applyRoleScope({ user: currentUser }, {}, 'assignedTo');
+  const activityScope = await applyRoleScope({ user: currentUser }, {}, 'assignedTo');
 
   const now = new Date();
 
@@ -58,7 +58,11 @@ export const getOverviewMetrics = async (currentUser) => {
         },
       },
     ]),
-    Activity.countDocuments({ ...activityScope, status: ACTIVITY_STATUSES.PENDING }),
+    Activity.countDocuments({
+      ...activityScope,
+      status: ACTIVITY_STATUSES.PENDING,
+      dueDate: { $gte: now },
+    }),
     Activity.countDocuments({
       ...activityScope,
       status: ACTIVITY_STATUSES.PENDING,
@@ -101,7 +105,7 @@ export const getOverviewMetrics = async (currentUser) => {
 };
 
 export const getPipelineMetrics = async (currentUser) => {
-  const dealScope = applyRoleScope({ user: currentUser }, {}, 'assignedTo');
+  const dealScope = await applyRoleScope({ user: currentUser }, {}, 'assignedTo');
 
   const pipelineData = await Deal.aggregate([
     { $match: dealScope },
@@ -130,7 +134,13 @@ export const getPipelineMetrics = async (currentUser) => {
 };
 
 export const getTeamPerformance = async (currentUser) => {
-  const users = await User.find({ role: ROLES.SALES_EXECUTIVE, isActive: true }).select('name email role');
+  const userFilter = { role: ROLES.SALES_EXECUTIVE, isActive: true };
+  if (currentUser.role === ROLES.SALES_MANAGER) {
+    userFilter.manager = currentUser._id;
+  }
+
+  const users = await User.find(userFilter).select('name email role');
+
 
   const performance = await Promise.all(
     users.map(async (user) => {

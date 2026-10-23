@@ -58,12 +58,23 @@ export const errorHandler = (err, req, res, next) => {
     error = new ApiError(statusCode, message, err.errors || []);
   }
 
-  console.error(`[API ERROR ${error.statusCode || 500}]`, error.message);
+  const statusCode = error.statusCode || 500;
+  console.error(`[API ERROR ${statusCode}]`, error.message);
+
+  // In production, sanitize 500 internal server errors to avoid leaking system internals
+  let clientMessage = error.message;
+  if (statusCode >= 500 && config.env === 'production') {
+    clientMessage = 'An internal server error occurred. Please try again later.';
+  }
 
   const response = {
     success: false,
-    message: error.message,
+    message: clientMessage,
   };
 
-  res.status(error.statusCode || 500).json(response);
+  if (error.errors && error.errors.length > 0) {
+    response.errors = error.errors;
+  }
+
+  res.status(statusCode).json(response);
 };

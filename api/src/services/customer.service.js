@@ -1,12 +1,33 @@
 import { Customer } from '../models/Customer.js';
+import { Lead } from '../models/Lead.js';
 import { User } from '../models/User.js';
 import { ApiError } from '../utils/ApiError.js';
 import { parseQueryParams, buildPaginationMeta } from '../utils/queryHelper.js';
-import { applyRoleScope, checkDocumentOwnership } from '../middleware/rbac.middleware.js';
-
+import { applyRoleScope, checkDocumentOwnership, getTeamUserIds } from '../middleware/rbac.middleware.js';
+import { logEvent } from './timeline.service.js';
+import { ENTITY_TYPES, TIMELINE_ACTIONS, ROLES } from '../config/constants.js';
 
 export const createCustomer = async (customerData, currentUser) => {
-  const assignedUserId = customerData.assignedTo || currentUser._id;
+  if (customerData.originalLead) {
+    const originalLead = await Lead.findById(customerData.originalLead);
+    if (!originalLead) {
+      throw new ApiError(404, 'Associated original lead not found');
+    }
+    await checkDocumentOwnership(originalLead, currentUser, 'assignedTo');
+  }
+
+  let assignedUserId = customerData.assignedTo || currentUser._id;
+
+  if (currentUser.role === ROLES.SALES_EXECUTIVE) {
+    assignedUserId = currentUser._id;
+  } else if (currentUser.role === ROLES.SALES_MANAGER && customerData.assignedTo) {
+    const teamUserIds = await getTeamUserIds(currentUser);
+    const teamIdStrings = teamUserIds.map((id) => id.toString());
+    if (!teamIdStrings.includes(customerData.assignedTo.toString())) {
+      throw new ApiError(403, 'Sales Managers can only assign customers to executives within their team');
+    }
+  }
+
   const assignedUser = await User.findById(assignedUserId);
   if (!assignedUser || !assignedUser.isActive) {
     throw new ApiError(400, 'Assigned user is invalid or inactive');
@@ -15,6 +36,16 @@ export const createCustomer = async (customerData, currentUser) => {
   const customer = await Customer.create({
     ...customerData,
     assignedTo: assignedUserId,
+  });
+
+  // Audit timeline log for customer creation outside lead conversion
+  await logEvent({
+    action: TIMELINE_ACTIONS.CUSTOMER_CREATED,
+    entityType: ENTITY_TYPES.CUSTOMER,
+    entityId: customer._id,
+    performedBy: currentUser._id,
+    newValue: { name: customer.name, email: customer.email },
+    details: `Customer created directly by ${currentUser.name || 'user'}`,
   });
 
   return await customer.populate([
@@ -30,7 +61,7 @@ export const getCustomers = async (queryParams, currentUser) => {
     defaultSort: '-createdAt',
   });
 
-  const scopedFilter = applyRoleScope({ user: currentUser }, filterQuery, 'assignedTo');
+  const scopedFilter = await applyRoleScope({ user: currentUser }, filterQuery, 'assignedTo');
 
   const [customers, totalRecords] = await Promise.all([
     Customer.find(scopedFilter)
@@ -55,7 +86,7 @@ export const getCustomerById = async (customerId, currentUser) => {
     throw new ApiError(404, 'Customer not found');
   }
 
-  checkDocumentOwnership(customer, currentUser, 'assignedTo');
+  await checkDocumentOwnership(customer, currentUser, 'assignedTo');
   return customer;
 };
 
@@ -65,7 +96,7 @@ export const updateCustomer = async (customerId, updateData, currentUser) => {
     throw new ApiError(404, 'Customer not found');
   }
 
-  checkDocumentOwnership(customer, currentUser, 'assignedTo');
+  await checkDocumentOwnership(customer, currentUser, 'assignedTo');
 
   Object.assign(customer, updateData);
   await customer.save();
@@ -82,7 +113,7 @@ export const deleteCustomer = async (customerId, currentUser) => {
     throw new ApiError(404, 'Customer not found');
   }
 
-  checkDocumentOwnership(customer, currentUser, 'assignedTo');
+  await checkDocumentOwnership(customer, currentUser, 'assignedTo');
   await Customer.findByIdAndDelete(customerId);
   return true;
 };
@@ -94,3 +125,4 @@ export const CustomerService = {
   updateCustomer,
   deleteCustomer,
 };
+

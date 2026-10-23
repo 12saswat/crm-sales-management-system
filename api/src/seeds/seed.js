@@ -6,6 +6,7 @@ import { Customer } from '../models/Customer.js';
 import { Deal } from '../models/Deal.js';
 import { Activity } from '../models/Activity.js';
 import { Timeline } from '../models/Timeline.js';
+import { CrmConfig } from '../models/CrmConfig.js';
 import {
   ROLES,
   LEAD_SOURCES,
@@ -32,9 +33,10 @@ const seedDatabase = async () => {
       Deal.deleteMany({}),
       Activity.deleteMany({}),
       Timeline.deleteMany({}),
+      CrmConfig.deleteMany({}),
     ]);
 
-    console.log('[Seed]: Creating Users...');
+    console.log('[Seed]: Creating Users and Teams...');
 
     const admin = await User.create({
       name: 'Saswat Patra',
@@ -45,7 +47,7 @@ const seedDatabase = async () => {
       isActive: true,
     });
 
-    const manager = await User.create({
+    const manager1 = await User.create({
       name: 'Sanjay Mohanty',
       email: 'manager@odishacrm.com',
       password: 'ManagerPass123!',
@@ -54,12 +56,23 @@ const seedDatabase = async () => {
       isActive: true,
     });
 
+    const manager2 = await User.create({
+      name: 'Priyanka Ray',
+      email: 'manager2@odishacrm.com',
+      password: 'ManagerPass123!',
+      phone: '+919876543214',
+      role: ROLES.SALES_MANAGER,
+      isActive: true,
+    });
+
+    // Team 1 Executives
     const exec1 = await User.create({
       name: 'Debasish Das',
       email: 'executive1@odishacrm.com',
       password: 'ExecutivePass123!',
       phone: '+919876543212',
       role: ROLES.SALES_EXECUTIVE,
+      manager: manager1._id,
       isActive: true,
     });
 
@@ -69,7 +82,40 @@ const seedDatabase = async () => {
       password: 'ExecutivePass123!',
       phone: '+919876543213',
       role: ROLES.SALES_EXECUTIVE,
+      manager: manager1._id,
       isActive: true,
+    });
+
+    // Team 2 Executive
+    const exec3 = await User.create({
+      name: 'Rohan Sharma',
+      email: 'executive3@odishacrm.com',
+      password: 'ExecutivePass123!',
+      phone: '+919876543215',
+      role: ROLES.SALES_EXECUTIVE,
+      manager: manager2._id,
+      isActive: true,
+    });
+
+    console.log('[Seed]: Creating CRM Configuration...');
+    await CrmConfig.create({
+      companyName: 'Odisha CRM Solutions',
+      currency: 'USD',
+      timezone: 'UTC',
+      leadSources: Object.values(LEAD_SOURCES),
+      leadStatuses: Object.values(LEAD_STATUSES),
+      dealStages: Object.values(DEAL_STAGES),
+      defaultDealProbabilities: {
+        Qualification: 10,
+        Discovery: 25,
+        Proposal: 50,
+        Negotiation: 75,
+        Won: 100,
+        Lost: 0,
+      },
+      allowExecutiveLeadReassignment: false,
+      updatedBy: admin._id,
+      isDefault: true,
     });
 
     console.log('[Seed]: Creating Leads...');
@@ -95,6 +141,18 @@ const seedDatabase = async () => {
       priority: LEAD_PRIORITIES.MEDIUM,
       assignedTo: exec2._id,
       description: 'Inquired via partner referral program',
+    });
+
+    const leadTeam2 = await Lead.create({
+      name: 'Delta Dynamics',
+      email: 'contact@deltadynamics.com',
+      phone: '+18005550400',
+      company: 'Delta Dynamics Corp',
+      source: LEAD_SOURCES.WEBSITE,
+      status: LEAD_STATUSES.NEW,
+      priority: LEAD_PRIORITIES.LOW,
+      assignedTo: exec3._id,
+      description: 'Team 2 lead for testing manager team isolation',
     });
 
     console.log('[Seed]: Creating Customer and Converted Lead...');
@@ -147,7 +205,7 @@ const seedDatabase = async () => {
       assignedTo: exec1._id,
       value: 50000,
       probability: 100,
-      expectedClosingDate: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+      expectedClosingDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
       stage: DEAL_STAGES.WON,
       description: 'Expanded module deployment successfully closed',
     });
@@ -163,7 +221,7 @@ const seedDatabase = async () => {
         status: ACTIVITY_STATUSES.PENDING,
         entityType: ENTITY_TYPES.LEAD,
         entityId: lead1._id,
-        createdBy: manager._id,
+        createdBy: manager1._id,
       },
       {
         type: ACTIVITY_TYPES.MEETING,
@@ -200,10 +258,12 @@ const seedDatabase = async () => {
 
     console.log(' SEEDING COMPLETED SUCCESSFULLY!');
     console.log(' Sample Credentials:');
-    console.log(' Admin:         admin@crm.com / AdminPass123!');
-    console.log(' Manager:       manager@crm.com / ManagerPass123!');
-    console.log(' Executive 1:   executive1@crm.com / ExecutivePass123!');
-    console.log(' Executive 2:   executive2@crm.com / ExecutivePass123!');
+    console.log(' Admin:         admin@odishacrm.com / AdminPass123!');
+    console.log(' Manager 1:     manager@odishacrm.com / ManagerPass123! (Team: exec1, exec2)');
+    console.log(' Manager 2:     manager2@odishacrm.com / ManagerPass123! (Team: exec3)');
+    console.log(' Executive 1:   executive1@odishacrm.com / ExecutivePass123!');
+    console.log(' Executive 2:   executive2@odishacrm.com / ExecutivePass123!');
+    console.log(' Executive 3:   executive3@odishacrm.com / ExecutivePass123!');
 
     await mongoose.disconnect();
     process.exit(0);
@@ -214,3 +274,4 @@ const seedDatabase = async () => {
 };
 
 seedDatabase();
+

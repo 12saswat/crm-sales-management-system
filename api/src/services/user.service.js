@@ -8,18 +8,31 @@ export const createUser = async (userData) => {
   if (existing) {
     throw new ApiError(400, 'User with this email already exists');
   }
-  return await User.create(userData);
+
+  if (userData.manager) {
+    const mgr = await User.findById(userData.manager);
+    if (!mgr || !mgr.isActive) {
+      throw new ApiError(400, 'Assigned manager is invalid or inactive');
+    }
+  }
+
+  const user = await User.create(userData);
+  return await user.populate('manager', 'name email role');
 };
 
 export const getUsers = async (queryParams) => {
   const { filterQuery, sortOptions, page, limit, skip } = parseQueryParams(queryParams, {
     searchFields: ['name', 'email', 'phone'],
-    allowedFilters: ['role', 'isActive'],
+    allowedFilters: ['role', 'isActive', 'manager'],
     defaultSort: '-createdAt',
   });
 
   const [users, totalRecords] = await Promise.all([
-    User.find(filterQuery).sort(sortOptions).skip(skip).limit(limit),
+    User.find(filterQuery)
+      .populate('manager', 'name email role')
+      .sort(sortOptions)
+      .skip(skip)
+      .limit(limit),
     User.countDocuments(filterQuery),
   ]);
 
@@ -28,7 +41,7 @@ export const getUsers = async (queryParams) => {
 };
 
 export const getUserById = async (userId) => {
-  const user = await User.findById(userId);
+  const user = await User.findById(userId).populate('manager', 'name email role');
   if (!user) {
     throw new ApiError(404, 'User not found');
   }
@@ -48,10 +61,18 @@ export const updateUser = async (userId, updateData) => {
     }
   }
 
+  if (updateData.manager) {
+    const mgr = await User.findById(updateData.manager);
+    if (!mgr || !mgr.isActive) {
+      throw new ApiError(400, 'Assigned manager is invalid or inactive');
+    }
+  }
+
   Object.assign(user, updateData);
   await user.save();
-  return user;
+  return await user.populate('manager', 'name email role');
 };
+
 
 export const toggleUserStatus = async (userId, isActive) => {
   const user = await User.findById(userId);

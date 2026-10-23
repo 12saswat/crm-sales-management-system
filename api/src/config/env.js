@@ -8,4 +8,6 @@ export const config = {
   jwtSecret: process.env.JWT_SECRET || 'super_secret_crm_jwt_token_key',
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
   cookieExpiresInDays: parseInt(process.env.COOKIE_EXPIRES_IN_DAYS || '7', 10),
+  frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
 };
+

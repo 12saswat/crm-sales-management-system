@@ -18,7 +18,16 @@ const customerSchema = new mongoose.Schema(
       type: String,
       trim: true,
       default: '',
+      validate: {
+        validator: function (v) {
+          if (!v || v.trim() === '') return true;
+          const cleaned = v.replace(/[\s\-\.\(\)]/g, '');
+          return /^\+?[1-9]\d{9,14}$/.test(cleaned);
+        },
+        message: 'Phone number must be a valid format with 10 to 15 digits',
+      },
     },
+
     company: {
       type: String,
       trim: true,
